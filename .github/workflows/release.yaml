@@ -1,0 +1,149 @@
+# ------------------------------------------------------------
+# Copyright 2021 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ------------------------------------------------------------
+
+
+
+name: dapr_bundle
+
+on:
+  push:
+    branches:
+      - main
+      - release-*
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      runtime_ver:
+        description: "Dapr Runtime Version"
+        required: false
+        default: "latest"
+        type: string
+      cli_ver:
+        description: "Dapr CLI Version"
+        required: false
+        default: "latest"
+        type: string
+      dashboard_ver:
+        description: "Dapr Dashboard Version"
+        required: false
+        default: "latest"
+        type: string
+
+  pull_request:
+    branches:
+      - main
+      - release-*
+
+
+jobs:
+  build:
+    name: Build ${{ matrix.target_os }}_${{ matrix.target_arch }} bundles
+    runs-on: ubuntu-latest
+    env:
+      ARCHIVE_DIR: archives
+      README_MD_FILE: README.md
+      README_TXT_FILE: README.txt
+    strategy:
+      matrix:
+        target_os: [linux, windows, darwin]
+        target_arch: [amd64, arm64, arm]
+        include:
+          -  target_os: linux
+          -  target_os: windows
+          -  target_os: darwin
+        exclude:
+          - target_os: windows
+            target_arch: arm
+          - target_os: windows
+            target_arch: arm64
+          - target_os: darwin
+            target_arch: arm
+    steps:
+      - name: Checkout code into current directory
+        uses: actions/checkout@v2
+
+      - name: Installing python version > 3.7
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+
+      - name: Display Python version
+        run: python --version
+
+      - name: Parse release version and set REL_VERSION
+        run: python ./.github/scripts/get_release_version.py
+
+      - name: Check env variables
+        run: |
+          echo RELEASE VERSION: ${{env.REL_VERSION}}
+          echo RUNTIME VERSION: ${{env.RUNTIME_VERSION}}
+          echo GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
+
+      - name: Create Readme.txt file
+        shell: bash
+        run: |
+          cp ${{env.README_MD_FILE}} ${{env.README_TXT_FILE}}
+
+      - name: Create and Archive bundle in workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: python ./.github/scripts/build_daprbundle.py --runtime_os=${{matrix.target_os}} --runtime_arch=${{matrix.target_arch}} --archive_dir=${{env.ARCHIVE_DIR}} --runtime_ver=${{inputs.runtime_ver}} --cli_ver=${{inputs.cli_ver}} --dashboard_ver=${{inputs.dashboard_ver}} --added_files=${{env.README_TXT_FILE}}
+
+      - name: Create and Archive bundle without workflow_dispatch
+        if: github.event_name != 'workflow_dispatch'
+        run: python ./.github/scripts/build_daprbundle.py --runtime_os=${{matrix.target_os}} --runtime_arch=${{matrix.target_arch}} --archive_dir=${{env.ARCHIVE_DIR}} --runtime_ver=${{env.RUNTIME_VERSION}} --added_files=${{env.README_TXT_FILE}}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with: # Following the migration guide here https://github.com/actions/upload-artifact/blob/main/docs/MIGRATION.md
+          name: bundle_drop_${{ matrix.target_os }}_${{ matrix.target_arch }}
+          path: ${{env.ARCHIVE_DIR}}
+  publish:
+    name: Publish Bundle created
+    needs: build
+    if: startswith(github.ref, 'refs/tags/v')
+    env:
+      ARTIFACT_DIR: ./release
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout code into current directory
+        uses: actions/checkout@v2
+
+      - name: Parse release version and set REL_VERSION
+        run: python ./.github/scripts/get_release_version.py
+
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with: # Following the migration guide here https://github.com/actions/upload-artifact/blob/main/docs/MIGRATION.md
+          pattern: bundle_drop_*
+          path: ${{env.ARTIFACT_DIR}}
+          merge-multiple: true
+
+      - name: generate checksum files
+        run: cd ${ARTIFACT_DIR} && for i in *; do sha256sum -b $i > "$i.sha256"; done && cd -
+
+      - name: lists artifacts
+        run: ls -l ${{ env.ARTIFACT_DIR }}
+
+      - name: Upload release using ncipollo/release-action
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "${{ env.ARTIFACT_DIR }}/*"
+          token:  ${{ secrets.DAPR_BOT_TOKEN }}
+          tag: "v${{ env.REL_VERSION }}"
+          name: "Dapr Installer-Bundle v${{ env.REL_VERSION }}"
+          prerelease: ${{ env.PRERELEASE }}
+          allowUpdates: true
