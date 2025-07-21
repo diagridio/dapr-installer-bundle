@@ -29,16 +29,15 @@ import stat
 
 
 # GitHub Organization and repo name to download release
-GITHUB_ORG="dapr"
-GITHUB_DAPR_REPO="dapr"
-GITHUB_DASHBOARD_REPO="dashboard"
+GITHUB_DAPR_ORG="dapr"
+GITHUB_DIAGRID_ORG="diagridio"
+GITHUB_DAPR_REPO="d3e"
 GITHUB_CLI_REPO="cli"
 
 # Dapr binaries filename
 DAPRD_FILENAME="daprd"
 PLACEMENT_FILENAME="placement"
 SENTRY_FILENAME="sentry"
-DASHBOARD_FILENAME="dashboard"
 CLI_FILENAME="dapr"
 SCHEDULER_FILENAME="scheduler"
 DAPRBUNDLE_FILENAME="daprbundle"
@@ -48,19 +47,23 @@ IMAGE_DIR="docker"
 BUNDLE_DIR="daprbundle"
 ARCHIVE_DIR="archive"
 
-DAPR_IMAGE="daprio/dapr"
+DAPR_IMAGE="public.ecr.aws/diagrid/d3e/dapr"
 detailsFileName="details.json"
 
 
-global runtime_os,runtime_arch,runtime_ver,dashboard_ver,cli_ver,added_files
+global runtime_os,runtime_arch,runtime_ver,cli_ver,added_files
 
 
 # Returns latest release/pre-release version of the given repo from GitHub (e.g. `dapr`)
-def getLatestRelease(repo):
+def getLatestRelease(repo, org=GITHUB_DAPR_ORG):
     preRelease = os.getenv("PRERELEASE")
-    daprReleaseUrl = "https://api.github.com/repos/" + GITHUB_ORG + "/" + repo + "/releases"
-    print(daprReleaseUrl)
-    resp = requests.get(daprReleaseUrl)
+    token = os.getenv("GITHUB_TOKEN")
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    releaseUrl = f"https://api.github.com/repos/{org}/{repo}/releases" + "?per_page=100"
+    print(releaseUrl)
+    resp = requests.get(releaseUrl,headers=headers)
     if resp.status_code != requests.codes.ok:
         print(f"Error pulling latest release of {repo}")
         resp.raise_for_status()
@@ -112,35 +115,44 @@ def unpack_archive(filePath,dir):
             print(f"Unknown archive file {filePath}")
             sys.exit(1)
 
-# Downloads the given  dapr binary(e.g. `daprd`) from the github `repo` and places it in `out_dir` folder
-def downloadBinary(repo, fileBase, version, out_dir):
+# Downloads the given dapr binary(e.g. `daprd`) from the github `repo` and places it in `out_dir` folder
+def downloadBinary(repo, fileBase, version, out_dir, org="diagridio"):
     fileName = binaryFileName(fileBase)
-    url = f"https://github.com/{GITHUB_ORG}/{repo}/releases/download/v{version}/{fileName}"
-    downloadPath = os.path.join(out_dir,fileName)
+    tag = f"v{version}"
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    print(f"Downloading {url} to {downloadPath}")
+    print(f"📦 Downloading {fileName} from {org}/{repo} release {tag} into {out_dir}...")
 
-    resp = requests.get(url,stream=True)
-    if resp.status_code == 200:
-        with open(downloadPath, 'wb') as f:
-            f.write(resp.raw.read())
-    else:
-        print(f"Error: Unable to Download {url}")
+    cmd = [
+        "gh", "release", "download", tag,
+        "--repo", f"{org}/{repo}",
+        "--pattern", fileName,
+        "--dir", out_dir
+    ]
 
-    print(f"Downloaded {url} to {downloadPath}")
-
-# Downloads all required dapr binaries (`daprd`,`placement`,`dashboard`) in `BIN_DIR` subfolder and dapr cli (`dapr`) in `dir` folder
+    try:
+        completed_process = subprocess.run(
+            cmd, text=True, capture_output=True, check=True
+        )
+        print(f"✅ Downloaded {fileName} to {out_dir}")
+    except subprocess.CalledProcessError as e:
+        print("❌ gh CLI failed to download the release asset.")
+        print(f"stderr:\n{e.stderr}")
+        print(f"stdout:\n{e.stdout}")
+        sys.exit(1)
+        
+# Downloads all required dapr binaries (`daprd`,`placement`,`sentry`,`scheduler`) in `BIN_DIR` subfolder and dapr cli (`dapr`) in `dir` folder
 def downloadBinaries(dir):
     bin_dir = os.path.join(dir,BIN_DIR)
-    downloadBinary(GITHUB_DAPR_REPO,DAPRD_FILENAME,runtime_ver,bin_dir)
-    downloadBinary(GITHUB_DAPR_REPO,PLACEMENT_FILENAME,runtime_ver,bin_dir)
-    downloadBinary(GITHUB_DAPR_REPO,SENTRY_FILENAME,runtime_ver,bin_dir)
-    downloadBinary(GITHUB_DAPR_REPO,SCHEDULER_FILENAME,runtime_ver,bin_dir)
-    downloadBinary(GITHUB_DASHBOARD_REPO,DASHBOARD_FILENAME,dashboard_ver,bin_dir)
-    downloadBinary(GITHUB_CLI_REPO,CLI_FILENAME,cli_ver,dir)
+    # All binaries except CLI come from diagridio org and d3e repo
+    downloadBinary(GITHUB_DAPR_REPO,DAPRD_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
+    downloadBinary(GITHUB_DAPR_REPO,PLACEMENT_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
+    downloadBinary(GITHUB_DAPR_REPO,SENTRY_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
+    downloadBinary(GITHUB_DAPR_REPO,SCHEDULER_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
+    # CLI comes from dapr org and cli repo
+    downloadBinary(GITHUB_CLI_REPO,CLI_FILENAME,cli_ver,dir,GITHUB_DAPR_ORG)
 
     cli_filepath = os.path.join(dir,binaryFileName(CLI_FILENAME))
     unpack_archive(cli_filepath,dir)
@@ -186,12 +198,11 @@ def downloadDockerImages(dir):
 
 # Parses command line arguments
 def parseArguments():
-    global runtime_os,runtime_arch,runtime_ver,dashboard_ver,cli_ver,ARCHIVE_DIR,added_files
+    global runtime_os,runtime_arch,runtime_ver,cli_ver,ARCHIVE_DIR,added_files
     all_args = argparse.ArgumentParser()
     all_args.add_argument("--runtime_os",required=True,help="Runtime OS: [windows/linux/darwin]")
     all_args.add_argument("--runtime_arch",required=True,help="Runtime Architecture: [amd64/arm/arm64]")
     all_args.add_argument("--runtime_ver",default="latest",help="Dapr Runtime Version: default=latest e.g. 1.6.0")
-    all_args.add_argument("--dashboard_ver",default="latest",help="Dapr Dashboard Version: default=latest e.g. 0.9.0")
     all_args.add_argument("--cli_ver",default="latest",help="Dapr CLI Version: default=latest e.g. 1.6.0")
     all_args.add_argument("--archive_dir",default="archive",help="Output Archive directory: default=archive")
     all_args.add_argument("--added_files",default="",help="Extra files to be included in the archive seaparated by comma")
@@ -200,17 +211,14 @@ def parseArguments():
     runtime_os = str(args['runtime_os'])
     runtime_arch = str(args['runtime_arch'])
     runtime_ver = str(args["runtime_ver"])
-    dashboard_ver = str(args["dashboard_ver"])
     cli_ver = str(args["cli_ver"])
     ARCHIVE_DIR = str(args["archive_dir"])
     added_files = str(args["added_files"])
 
     if runtime_ver == "latest" or runtime_ver == "":
-        runtime_ver = getLatestRelease(GITHUB_DAPR_REPO)
-    if dashboard_ver == "latest" or dashboard_ver == "":
-        dashboard_ver = getLatestRelease(GITHUB_DASHBOARD_REPO)
+        runtime_ver = getLatestRelease(GITHUB_DAPR_REPO, GITHUB_DIAGRID_ORG)
     if cli_ver == "latest" or cli_ver == "":
-        cli_ver = getLatestRelease(GITHUB_CLI_REPO)
+        cli_ver = getLatestRelease(GITHUB_CLI_REPO, GITHUB_DAPR_ORG)
 
 # Deletes a file if exists
 def deleteIfExists(dir):
@@ -226,7 +234,6 @@ def write_details(dir):
     daprImageFileName = getFileName(daprImageName)
     details = {
         "daprd" : runtime_ver,
-        "dashboard": dashboard_ver,
         "cli": cli_ver,
         "daprBinarySubDir": BIN_DIR,
         "dockerImageSubDir": IMAGE_DIR,

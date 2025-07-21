@@ -1,4 +1,4 @@
-# Dapr Installer Bundle
+# D3E Installer Bundle
 
 ## Overview
 Dapr Installer Bundle contains CLI, runtime and dashboard packaged together. This eliminates the need to download binaries as well as docker images when initializing Dapr locally, especially in airgap/offline environment. The bundle structure is fixed and is as follows:
@@ -26,6 +26,19 @@ daprbundle
     "dockerImageSubDir": <images_subdirectoryName>,
     "daprImageName": <dapr_imageName>,
     "daprImageFileName": <dapr_imageFileName>
+  }
+```
+
+`details.json` file contains the following contents in json format:
+```
+  {
+    "d3ed": <runtime_ver>,
+    "dashboard": <dashboard_ver>,
+    "cli": <cli_ver>,
+    "d3eBinarySubDir": <binaries_subdirectoryName>,
+    "dockerImageSubDir": <images_subdirectoryName>,
+    "d3eImageName": <d3e_imageName>,
+    "d3eImageFileName": <d3e_imageFileName>
   }
 ```
 
@@ -59,6 +72,7 @@ dapr init --from-dir .
 > For linux users, if you run your docker cmds with sudo, you need to use "**sudo dapr init**" 
 
 > If you are not running the above cmd from the bundle directory, provide the full path to bundle directory as input. e.g. assuming bundle directory path is $HOME/daprbundle, run `dapr init --from-dir $HOME/daprbundle` to have the same behavior.
+
 
 
 Output should look like as follows:

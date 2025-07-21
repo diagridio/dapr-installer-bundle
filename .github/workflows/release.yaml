@@ -34,11 +34,6 @@ on:
         required: false
         default: "latest"
         type: string
-      dashboard_ver:
-        description: "Dapr Dashboard Version"
-        required: false
-        default: "latest"
-        type: string
 
   pull_request:
     branches:
@@ -56,12 +51,13 @@ jobs:
       README_TXT_FILE: README.txt
     strategy:
       matrix:
-        target_os: [linux, windows, darwin]
-        target_arch: [amd64, arm64, arm]
+        # target_os: [linux, windows, darwin]
+        target_os: [linux, windows]
+        target_arch: [amd64, arm64]
         include:
           -  target_os: linux
           -  target_os: windows
-          -  target_os: darwin
+          # -  target_os: darwin
         exclude:
           - target_os: windows
             target_arch: arm
@@ -73,18 +69,27 @@ jobs:
       - name: Checkout code into current directory
         uses: actions/checkout@v2
 
-      - name: Installing python version > 3.7
-        uses: actions/setup-python@v2
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
-          cache: 'pip'
+          python-version: "3.9"
       - run: pip install -r requirements.txt
 
       - name: Display Python version
         run: python --version
 
+      - name: Get Token
+        id: get_workflow_token
+        uses: peter-murray/workflow-application-token-action@v2
+        with:
+          application_id: ${{ secrets.DIAGRID_BOT_APPLICATION_ID }}
+          application_private_key: ${{ secrets.DIAGRID_BOT_APPLICATION_PRIVATE_KEY }}
+
       - name: Parse release version and set REL_VERSION
         run: python ./.github/scripts/get_release_version.py
+        env:
+          GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
+
 
       - name: Check env variables
         run: |
@@ -99,11 +104,15 @@ jobs:
 
       - name: Create and Archive bundle in workflow_dispatch
         if: github.event_name == 'workflow_dispatch'
-        run: python ./.github/scripts/build_daprbundle.py --runtime_os=${{matrix.target_os}} --runtime_arch=${{matrix.target_arch}} --archive_dir=${{env.ARCHIVE_DIR}} --runtime_ver=${{inputs.runtime_ver}} --cli_ver=${{inputs.cli_ver}} --dashboard_ver=${{inputs.dashboard_ver}} --added_files=${{env.README_TXT_FILE}}
+        run: python ./.github/scripts/build_daprbundle.py --runtime_os=${{matrix.target_os}} --runtime_arch=${{matrix.target_arch}} --archive_dir=${{env.ARCHIVE_DIR}} --runtime_ver=${{inputs.runtime_ver}} --cli_ver=${{inputs.cli_ver}} --added_files=${{env.README_TXT_FILE}}
+        env:
+          GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
 
       - name: Create and Archive bundle without workflow_dispatch
         if: github.event_name != 'workflow_dispatch'
         run: python ./.github/scripts/build_daprbundle.py --runtime_os=${{matrix.target_os}} --runtime_arch=${{matrix.target_arch}} --archive_dir=${{env.ARCHIVE_DIR}} --runtime_ver=${{env.RUNTIME_VERSION}} --added_files=${{env.README_TXT_FILE}}
+        env:
+          GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
