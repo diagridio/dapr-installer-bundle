@@ -34,6 +34,11 @@ on:
         required: false
         default: "latest"
         type: string
+      publish:
+        description: "Publish Bundle"
+        required: false
+        default: false
+        type: boolean
 
   pull_request:
     branches:
@@ -122,6 +127,7 @@ jobs:
   publish:
     name: Publish Bundle created
     needs: build
+    if: inputs.publish == true
     env:
       ARTIFACT_DIR: ./release
     runs-on: ubuntu-latest
@@ -150,7 +156,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: "${{ env.ARTIFACT_DIR }}/*"
-          token:  ${{ secrets.DAPR_BOT_TOKEN }}
+          token: ${{ steps.get_workflow_token.outputs.token }}
           tag: "v${{ env.REL_VERSION }}"
           name: "Dapr Installer-Bundle v${{ env.REL_VERSION }}"
           prerelease: ${{ env.PRERELEASE }}
