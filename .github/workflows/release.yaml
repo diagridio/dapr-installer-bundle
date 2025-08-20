@@ -95,6 +95,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
 
+      - name: Set versions from workflow dispatch inputs
+        run: |
+          echo "REL_VERSION=${{ inputs.runtime_ver }}" >> $GITHUB_ENV
+          echo "RUNTIME_VERSION=${{ inputs.runtime_ver }}" >> $GITHUB_ENV
 
       - name: Check env variables
         run: |
@@ -146,6 +150,11 @@ jobs:
 
       - name: Parse release version and set REL_VERSION
         run: python ./.github/scripts/get_release_version.py
+
+      - name: Set versions from workflow dispatch inputs
+        run: |
+          echo "REL_VERSION=${{ inputs.runtime_ver }}" >> $GITHUB_ENV
+          echo "RUNTIME_VERSION=${{ inputs.runtime_ver }}" >> $GITHUB_ENV
 
       - name: download artifacts
         uses: actions/download-artifact@v4
