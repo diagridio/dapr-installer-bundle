@@ -153,8 +153,8 @@ def downloadBinaries(dir):
     downloadBinary(GITHUB_DAPR_REPO,PLACEMENT_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
     downloadBinary(GITHUB_DAPR_REPO,SENTRY_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
     downloadBinary(GITHUB_DAPR_REPO,SCHEDULER_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
-    downloadBinary(GITHUB_DASHBOARD_REPO,DASHBOARD_FILENAME,dashboard_ver,bin_dir)
     # CLI comes from dapr org and cli repo
+    downloadBinary(GITHUB_DASHBOARD_REPO,DASHBOARD_FILENAME,dashboard_ver,bin_dir, GITHUB_DAPR_ORG)
     downloadBinary(GITHUB_CLI_REPO,CLI_FILENAME,cli_ver,dir,GITHUB_DAPR_ORG)
 
     cli_filepath = os.path.join(dir,binaryFileName(CLI_FILENAME))
