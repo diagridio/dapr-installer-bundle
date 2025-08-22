@@ -33,6 +33,7 @@ GITHUB_DAPR_ORG="dapr"
 GITHUB_DIAGRID_ORG="diagridio"
 GITHUB_DAPR_REPO="d3e"
 GITHUB_CLI_REPO="cli"
+GITHUB_DASHBOARD_REPO="dashboard"
 
 # Dapr binaries filename
 DAPRD_FILENAME="daprd"
@@ -40,6 +41,7 @@ PLACEMENT_FILENAME="placement"
 SENTRY_FILENAME="sentry"
 CLI_FILENAME="dapr"
 SCHEDULER_FILENAME="scheduler"
+DASHBOARD_FILENAME="dashboard"
 DAPRBUNDLE_FILENAME="daprbundle"
 
 BIN_DIR="dist"
@@ -51,7 +53,7 @@ DAPR_IMAGE="public.ecr.aws/diagrid/d3e/dapr"
 detailsFileName="details.json"
 
 
-global runtime_os,runtime_arch,runtime_ver,cli_ver,added_files
+global runtime_os,runtime_arch,runtime_ver,cli_ver,dashboard_ver,added_files
 
 
 # Returns latest release/pre-release version of the given repo from GitHub (e.g. `dapr`)
@@ -151,6 +153,7 @@ def downloadBinaries(dir):
     downloadBinary(GITHUB_DAPR_REPO,PLACEMENT_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
     downloadBinary(GITHUB_DAPR_REPO,SENTRY_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
     downloadBinary(GITHUB_DAPR_REPO,SCHEDULER_FILENAME,runtime_ver,bin_dir,GITHUB_DIAGRID_ORG)
+    downloadBinary(GITHUB_DASHBOARD_REPO,DASHBOARD_FILENAME,dashboard_ver,bin_dir)
     # CLI comes from dapr org and cli repo
     downloadBinary(GITHUB_CLI_REPO,CLI_FILENAME,cli_ver,dir,GITHUB_DAPR_ORG)
 
@@ -198,12 +201,13 @@ def downloadDockerImages(dir):
 
 # Parses command line arguments
 def parseArguments():
-    global runtime_os,runtime_arch,runtime_ver,cli_ver,ARCHIVE_DIR,added_files
+    global runtime_os,runtime_arch,runtime_ver,cli_ver,dashboard_ver,ARCHIVE_DIR,added_files
     all_args = argparse.ArgumentParser()
     all_args.add_argument("--runtime_os",required=True,help="Runtime OS: [windows/linux/darwin]")
     all_args.add_argument("--runtime_arch",required=True,help="Runtime Architecture: [amd64/arm/arm64]")
     all_args.add_argument("--runtime_ver",default="latest",help="Dapr Runtime Version: default=latest e.g. 1.6.0")
     all_args.add_argument("--cli_ver",default="latest",help="Dapr CLI Version: default=latest e.g. 1.6.0")
+    all_args.add_argument("--dashboard_ver",default="latest",help="Dapr Dashboard Version: default=latest e.g. 0.9.0")
     all_args.add_argument("--archive_dir",default="archive",help="Output Archive directory: default=archive")
     all_args.add_argument("--added_files",default="",help="Extra files to be included in the archive seaparated by comma")
 
@@ -211,6 +215,7 @@ def parseArguments():
     runtime_os = str(args['runtime_os'])
     runtime_arch = str(args['runtime_arch'])
     runtime_ver = str(args["runtime_ver"])
+    dashboard_ver = str(args["dashboard_ver"])
     cli_ver = str(args["cli_ver"])
     ARCHIVE_DIR = str(args["archive_dir"])
     added_files = str(args["added_files"])
@@ -219,6 +224,8 @@ def parseArguments():
         runtime_ver = getLatestRelease(GITHUB_DAPR_REPO, GITHUB_DIAGRID_ORG)
     if cli_ver == "latest" or cli_ver == "":
         cli_ver = getLatestRelease(GITHUB_CLI_REPO, GITHUB_DAPR_ORG)
+    if dashboard_ver == "latest" or dashboard_ver == "":
+        dashboard_ver = getLatestRelease(GITHUB_DASHBOARD_REPO, GITHUB_DAPR_ORG)
 
 # Deletes a file if exists
 def deleteIfExists(dir):
@@ -234,6 +241,7 @@ def write_details(dir):
     daprImageFileName = getFileName(daprImageName)
     details = {
         "daprd" : runtime_ver,
+        "dashboard": dashboard_ver,
         "cli": cli_ver,
         "daprBinarySubDir": BIN_DIR,
         "dockerImageSubDir": IMAGE_DIR,
