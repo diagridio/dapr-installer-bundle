@@ -50,6 +50,13 @@ jobs:
   build:
     name: Build ${{ matrix.target_os }}_${{ matrix.target_arch }} bundles
     runs-on: ubuntu-latest
+    # AWS_CI_ROLE is a variable of this environment. The build job uses it to log
+    # in to ECR Public before it pulls the D3E runtime image.
+    environment: shared-production
+    permissions:
+      contents: read
+      # Needed to assume AWS_CI_ROLE for the ECR Public login.
+      id-token: write
     env:
       ARCHIVE_DIR: archives
       README_MD_FILE: README.md
@@ -110,6 +117,29 @@ jobs:
         shell: bash
         run: |
           cp ${{env.README_MD_FILE}} ${{env.README_TXT_FILE}}
+
+      # ECR Public gives anonymous pulls 500 GB a month for each source IP.
+      # GitHub-hosted runners share IPs with other users, so the image pull
+      # failed with "toomanyrequests: Data limit exceeded" when the runner IP was
+      # out of quota. A logged-in pull counts against our AWS account instead. If
+      # the login fails, the job continues with anonymous pulls, as before.
+      - name: Configure AWS credentials
+        id: aws
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE }}
+          # ECR Public has its API only in us-east-1.
+          aws-region: us-east-1
+
+      - name: Log in to ECR Public
+        id: ecr
+        if: steps.aws.outcome == 'success'
+        continue-on-error: true
+        run: |
+          PASSWORD=$(aws ecr-public get-login-password --region us-east-1)
+          echo "::add-mask::${PASSWORD}"
+          echo "${PASSWORD}" | docker login public.ecr.aws --username AWS --password-stdin
 
       - name: Create and Archive bundle in workflow_dispatch
         if: github.event_name == 'workflow_dispatch'
