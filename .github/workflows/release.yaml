@@ -74,10 +74,14 @@ jobs:
       - name: Checkout code into current directory
         uses: actions/checkout@v2
 
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v4
+      # ubuntu-latest now gives Ubuntu 26.04 runners. setup-python has no
+      # Python 3.9 build for Ubuntu 26.04, so a pin to 3.9 fails the job before
+      # the bundle build starts. Python 3.9 has no upstream support since
+      # October 2025. Python 3.12 has builds for Ubuntu 24.04 and 26.04.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: "3.12"
       - run: pip install -r requirements.txt
 
       - name: Display Python version
@@ -139,7 +143,14 @@ jobs:
 
       - name: Checkout code into current directory
         uses: actions/checkout@v2
-      
+
+      # The next steps run a Python script. Set the version here too, so that
+      # the job does not depend on the Python of the runner image.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Get Token
         id: get_workflow_token
         uses: peter-murray/workflow-application-token-action@v2

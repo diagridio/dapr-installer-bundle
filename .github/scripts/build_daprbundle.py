@@ -26,6 +26,7 @@ import sys
 import shutil
 import semver
 import stat
+import time
 
 
 # GitHub Organization and repo name to download release
@@ -55,6 +56,34 @@ detailsFileName="details.json"
 
 global runtime_os,runtime_arch,runtime_ver,cli_ver,dashboard_ver,added_files
 
+# Number of attempts for each network operation: the GitHub API call, each
+# release download and the image pull. Set BUNDLE_RETRY_ATTEMPTS to change it.
+# A GitHub-hosted runner sometimes gets a short network error or a rate limit.
+# Before, one such error stopped the build. Now the script tries again.
+RETRY_ATTEMPTS = max(1, int(os.getenv("BUNDLE_RETRY_ATTEMPTS", "10")))
+RETRY_MAX_DELAY_SECONDS = 60
+
+# Returns the wait time before the next attempt: 10s, 20s, 30s ... up to 60s.
+def retryDelay(attempt):
+    return min(10 * attempt, RETRY_MAX_DELAY_SECONDS)
+
+# Runs `cmd` until it exits with 0, at most RETRY_ATTEMPTS times.
+# Returns the result of the last attempt. The caller checks its return code.
+def runWithRetry(cmd, what, capture_output=False):
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        result = subprocess.run(cmd, text=True, capture_output=capture_output)
+        if result.returncode == 0:
+            return result
+        print(f"⚠️ {what} failed (attempt {attempt}/{RETRY_ATTEMPTS}, exit code {result.returncode}).")
+        if capture_output:
+            print(f"stderr:\n{result.stderr}")
+            print(f"stdout:\n{result.stdout}")
+        if attempt < RETRY_ATTEMPTS:
+            delay = retryDelay(attempt)
+            print(f"Retrying in {delay} seconds...")
+            time.sleep(delay)
+    return result
+
 
 # Returns latest release/pre-release version of the given repo from GitHub (e.g. `dapr`)
 def getLatestRelease(repo, org=GITHUB_DAPR_ORG):
@@ -65,10 +94,24 @@ def getLatestRelease(repo, org=GITHUB_DAPR_ORG):
         headers["Authorization"] = f"Bearer {token}"
     releaseUrl = f"https://api.github.com/repos/{org}/{repo}/releases" + "?per_page=100"
     print(releaseUrl)
-    resp = requests.get(releaseUrl,headers=headers)
-    if resp.status_code != requests.codes.ok:
+    resp = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            resp = requests.get(releaseUrl,headers=headers,timeout=60)
+            if resp.status_code == requests.codes.ok:
+                break
+            print(f"⚠️ GitHub API returned {resp.status_code} for {releaseUrl} (attempt {attempt}/{RETRY_ATTEMPTS}).")
+        except requests.RequestException as e:
+            resp = None
+            print(f"⚠️ GitHub API request for {releaseUrl} failed (attempt {attempt}/{RETRY_ATTEMPTS}): {e}")
+        if attempt < RETRY_ATTEMPTS:
+            delay = retryDelay(attempt)
+            print(f"Retrying in {delay} seconds...")
+            time.sleep(delay)
+    if resp is None or resp.status_code != requests.codes.ok:
         print(f"Error pulling latest release of {repo}")
-        resp.raise_for_status()
+        if resp is not None:
+            resp.raise_for_status()
         sys.exit(1)
     data = json.loads(resp.text)
     versions = []
@@ -127,24 +170,21 @@ def downloadBinary(repo, fileBase, version, out_dir, org="diagridio"):
 
     print(f"📦 Downloading {fileName} from {org}/{repo} release {tag} into {out_dir}...")
 
+    # --clobber replaces a partial file that a failed attempt left behind.
     cmd = [
         "gh", "release", "download", tag,
         "--repo", f"{org}/{repo}",
         "--pattern", fileName,
-        "--dir", out_dir
+        "--dir", out_dir,
+        "--clobber"
     ]
 
-    try:
-        completed_process = subprocess.run(
-            cmd, text=True, capture_output=True, check=True
-        )
-        print(f"✅ Downloaded {fileName} to {out_dir}")
-    except subprocess.CalledProcessError as e:
+    result = runWithRetry(cmd, f"Download of {fileName} from {org}/{repo} release {tag}", capture_output=True)
+    if result.returncode != 0:
         print("❌ gh CLI failed to download the release asset.")
-        print(f"stderr:\n{e.stderr}")
-        print(f"stdout:\n{e.stdout}")
         sys.exit(1)
-        
+    print(f"✅ Downloaded {fileName} to {out_dir}")
+
 # Downloads all required dapr binaries (`daprd`,`placement`,`sentry`,`scheduler`) in `BIN_DIR` subfolder and dapr cli (`dapr`) in `dir` folder
 def downloadBinaries(dir):
     bin_dir = os.path.join(dir,BIN_DIR)
@@ -181,7 +221,7 @@ def downloadDockerImage(image_name, version, out_dir):
     print(f"Downloading {docker_image} to {downloadPath}")
 
     cmd = ["docker", "pull",docker_image]
-    completed_process = subprocess.run(cmd,text=True)
+    completed_process = runWithRetry(cmd, f"Pull of {docker_image}")
     if(completed_process.returncode != 0):
         print(f"Error pulling docker image {docker_image}")
         sys.exit(1)
